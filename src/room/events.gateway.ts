@@ -67,6 +67,8 @@ export class EventGateway {
       // room 人数超过4, 拒绝加入(+1是计入初始的一个房间, 这里没找到namespace的api，先这样写)
       console.log('size', roomsMap.get(data.roomId).size);
       return { msg: '当前房间人数已满' };
+    } else if (this.globalGameRoom.get(data.roomId).started) {
+      return { msg: '当前房间正在游戏中，无法加入' };
     }
     client.join(data.roomId);
     this.server
