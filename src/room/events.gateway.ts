@@ -10,7 +10,10 @@ import { Socket, Server } from 'socket.io';
 @WebSocketGateway({ cors: true })
 export class EventGateway {
   @WebSocketServer() private server: Server;
+
   private limitClientNum: number = 4;
+
+  private globalGameRoom: Map<string, GameRoom> = new Map();
 
   @SubscribeMessage('connect-server')
   handleConnect(
@@ -29,10 +32,20 @@ export class EventGateway {
     console.log(client.rooms);
     // client.broadcast.emit('event', {str:'afdsafda'});
     client.join(data.roomName);
-    this.server
-      .to(data.roomName as string)
-      .emit('broadcast', { str: 'afdsafda' });
+    let newRoom: GameRoom = {
+      id: data.roomName,
+      started: false,
+      message: new Map(),
+      playerMap: new Map()
+    };
+    let newPlayer: Player = {
+      id: client.id,  //  找机会改成使用传入的player用户名
+      socketId: client.id
+    }
+    newRoom.playerMap.set(client.id, newPlayer);
+    this.globalGameRoom.set(data.roomName, newRoom);
     console.log(client.rooms);
+    console.log(this.globalGameRoom);
     return data;
   }
 
