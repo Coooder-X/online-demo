@@ -36,12 +36,12 @@ export class EventGateway {
       id: data.roomName,
       started: false,
       message: new Map(),
-      playerMap: new Map()
+      playerMap: new Map(),
     };
     let newPlayer: Player = {
-      id: client.id,  //  找机会改成使用传入的player用户名
-      socketId: client.id
-    }
+      id: client.id, //  找机会改成使用传入的player用户名
+      socketId: client.id,
+    };
     newRoom.playerMap.set(client.id, newPlayer);
     this.globalGameRoom.set(data.roomName, newRoom);
     console.log(client.rooms);
@@ -74,7 +74,7 @@ export class EventGateway {
     this.server
       .to(data.roomId as string)
       .except(client.id)
-      .emit('broadcast', { msg: `${client.id}已进入房间` });  //  给当前房间除了自己的人广播消息
+      .emit('broadcast', { msg: `${client.id}已进入房间` }); //  给当前房间除了自己的人广播消息
     return { msg: `已加入房间：${data.roomId}` }; //  if exist, return room info
   }
 
@@ -93,14 +93,17 @@ export class EventGateway {
     return data;
   }
 
-  @SubscribeMessage('func')
-  func(@MessageBody() data: string): string {
-    console.log('func');
-    this.server.on('connection', (socket: Socket) => {
-      // console.log(socket);
-      socket.emit('message');
-    });
-    return data;
+  @SubscribeMessage('handleStart')
+  handleStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: any,
+  ): any {
+    console.log('handleStart');
+    // this.globalGameRoom.get(data.roomId)
+    if(this.server.of('/').adapter.rooms.get(data.roomId).size < 2) {
+      return { msg: '人数不足，无法开始', enable: false }
+    }
+    return { enable: true };
   }
 
   /**
