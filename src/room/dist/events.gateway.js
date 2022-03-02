@@ -11,8 +11,18 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
 exports.__esModule = true;
 exports.EventGateway = void 0;
 var websockets_1 = require("@nestjs/websockets");
+var constant_1 = require("src/constant");
 var EventGateway = /** @class */ (function () {
     function EventGateway() {
+        this.limitClientNum = 4;
+        this.globalGameRoom = new Map();
+        this.updateRoom = function (newRoom, clientId, playerName) {
+            var newPlayer = {
+                id: playerName,
+                socketId: clientId
+            };
+            newRoom.playerMap.set(clientId, newPlayer);
+        };
     }
     EventGateway.prototype.handleConnect = function (client, data) {
         console.log('new client connected.');
@@ -21,36 +31,58 @@ var EventGateway = /** @class */ (function () {
         console.log('createRoom');
         console.log(client.rooms);
         // client.broadcast.emit('event', {str:'afdsafda'});
-        client.join(data.roomName);
-        this.server.to(data.roomName).emit('broadcast', { str: 'afdsafda' });
+        if (this.server.of('/').adapter.rooms.has(data.roomName)) {
+            return constant_1.CREATE_ROOM_EXIST;
+        }
+        client.join(data.roomName); //  创建时自动加入房间
+        var newRoom = {
+            name: data.roomName,
+            started: false,
+            message: new Map(),
+            playerMap: new Map()
+        };
+        this.updateRoom(newRoom, client.id, client.id);
+        this.globalGameRoom.set(data.roomName, newRoom);
         console.log(client.rooms);
-        return data;
+        console.log(this.globalGameRoom);
+        return {
+            success: true,
+            room: newRoom,
+            msg: '创建成功!'
+        };
     };
-    EventGateway.prototype.handleJoinRoom = function (client, data) {
+    EventGateway.prototype.handleJoinRoom = function (client, roomName) {
         console.log('joinRoom');
-        var roomIds = this.server.adapter.rooms;
-        console.log(roomIds.keys());
-        // console.log('in room', this.server.in('room'));
-        // console.log(this.server._nsps);
-        // console.log(nsp, (this.server.adapter as any).rooms.nsp);
-        // console.log(roomIds.get(data.roomId));
-        // console.log('size', this.server.of('/room').adapter.rooms.size);
-        // console.log('server', this.server.server);
-        var io = this.server.server;
-        console.log('of', io.of('/room').adapter.rooms); //  of下namespace的rooms
-        // return this.server;
-        console.log('size', roomIds.size);
-        // const io = this.server as Server;
-        // console.log('nsp', io.of('/'));
-        if (roomIds.get(data.roomId) === undefined) { //  if incoming room_id not in exist rooms, return null
+        var roomsMap = this.server.of('/').adapter.rooms;
+        console.log('of room', roomsMap);
+        console.log('set room', roomName, roomsMap.get(roomName));
+        if (roomsMap.get(roomName) === undefined) {
+            //  if incoming room_id not in exist rooms, return null
             console.log('no has');
-            return null;
+            return constant_1.JOIN_ROOM_EXIST;
         }
-        else if (roomIds.size >= 4 + 1) { // room 人数超过4, 拒绝加入(+1是计入初始的一个房间, 这里没找到namespace的api，先这样写)
-            return { msg: '当前房间人数已满' };
+        else if (roomsMap.get(roomName).size >= this.limitClientNum + 1) {
+            // room 人数超过4, 拒绝加入(+1是计入初始的一个房间, 这里没找到namespace的api，先这样写)
+            console.log('size', roomsMap.get(roomName).size);
+            return constant_1.ROOM_FULL;
         }
-        client.join(data.roomId);
-        return { roomId: data.roomId }; //  if exist, return room info
+        else if (this.globalGameRoom.get(roomName).started) {
+            return constant_1.ROOM_PLAYING;
+        }
+        else if (this.server.of('/').adapter.rooms.get(roomName).has(client.id)) {
+            return constant_1.REPEAT_JOIN;
+        }
+        client.join(roomName);
+        this.updateRoom(this.globalGameRoom.get(roomName), client.id, client.id);
+        this.server
+            .to(roomName)
+            .except(client.id)
+            .emit('broadcast', { msg: client.id + "\u5DF2\u8FDB\u5165\u623F\u95F4" }); //  给当前房间除了自己的人广播消息
+        return {
+            msg: "\u5DF2\u52A0\u5165\u623F\u95F4\uFF1A" + roomName,
+            success: true,
+            room: this.globalGameRoom.get(roomName)
+        }; //  if exist, return room info
     };
     EventGateway.prototype.handleLeaveRoom = function (client, data) {
         console.log('leaveRoom');
@@ -60,18 +92,19 @@ var EventGateway = /** @class */ (function () {
         console.log('call event');
         return data;
     };
-    EventGateway.prototype.func = function (data) {
-        console.log('func');
-        this.server.on('connection', function (socket) {
-            // console.log(socket);
-            socket.emit('message');
-        });
-        return data;
+    EventGateway.prototype.handleStart = function (client, data) {
+        console.log('handleStart');
+        // this.globalGameRoom.get(data.roomName)
+        if (this.server.of('/').adapter.rooms.get(data.roomName).size < 2) {
+            return constant_1.PLAYER_TOO_LESS;
+        }
+        return constant_1.GAME_START;
     };
     /**
      * 断开链接
      */
     EventGateway.prototype.handleDisconnect = function (client) {
+        console.log('disconnect');
         // this.allNum -= 1
         // this.ws.emit('leave', { name: this.users[client.id], allNum: this.allNum, connectCounts: this.connectCounts });
     };
@@ -80,30 +113,35 @@ var EventGateway = /** @class */ (function () {
     ], EventGateway.prototype, "server");
     __decorate([
         websockets_1.SubscribeMessage('connect-server'),
-        __param(0, websockets_1.ConnectedSocket()), __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleConnect");
     __decorate([
         websockets_1.SubscribeMessage('createRoom'),
-        __param(0, websockets_1.ConnectedSocket()), __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleCreateRoom");
     __decorate([
         websockets_1.SubscribeMessage('joinRoom'),
-        __param(0, websockets_1.ConnectedSocket()), __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleJoinRoom");
     __decorate([
         websockets_1.SubscribeMessage('leaveRoom'),
-        __param(0, websockets_1.ConnectedSocket()), __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleLeaveRoom");
     __decorate([
         websockets_1.SubscribeMessage('event'),
         __param(0, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleEvent");
     __decorate([
-        websockets_1.SubscribeMessage('func'),
-        __param(0, websockets_1.MessageBody())
-    ], EventGateway.prototype, "func");
+        websockets_1.SubscribeMessage('handleStart'),
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
+    ], EventGateway.prototype, "handleStart");
     EventGateway = __decorate([
-        websockets_1.WebSocketGateway({ namespace: 'room', cors: true })
+        websockets_1.WebSocketGateway({ cors: true })
     ], EventGateway);
     return EventGateway;
 }());

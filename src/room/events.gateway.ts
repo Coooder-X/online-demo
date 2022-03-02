@@ -6,6 +6,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Socket, Server } from 'socket.io';
+import { PLAYER_TOO_LESS, GAME_START, REPEAT_JOIN, ROOM_PLAYING, ROOM_FULL, JOIN_ROOM_EXIST, CREATE_ROOM_EXIST } from 'src/constant';
 
 @WebSocketGateway({ cors: true })
 export class EventGateway {
@@ -14,6 +15,14 @@ export class EventGateway {
   private limitClientNum: number = 4;
 
   private globalGameRoom: Map<string, GameRoom> = new Map();
+
+  private updateRoom = (newRoom: GameRoom, clientId: string, playerName: string) => {
+    const newPlayer: Player = {
+      id: playerName, //  找机会改成使用传入的player用户名
+      socketId: clientId,
+    };
+    newRoom.playerMap.set(clientId, newPlayer);
+  }
 
   @SubscribeMessage('connect-server')
   handleConnect(
@@ -26,56 +35,66 @@ export class EventGateway {
   @SubscribeMessage('createRoom')
   handleCreateRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
-  ): any {
+    @MessageBody() data: CreateRoomReq,
+  ): CreateRoomRes {
     console.log('createRoom');
     console.log(client.rooms);
     // client.broadcast.emit('event', {str:'afdsafda'});
-    client.join(data.roomName);
+    if (this.server.of('/').adapter.rooms.has(data.roomName)) {
+      return CREATE_ROOM_EXIST;
+    }
+    client.join(data.roomName); //  创建时自动加入房间
     let newRoom: GameRoom = {
-      id: data.roomName,
+      name: data.roomName,
       started: false,
       message: new Map(),
       playerMap: new Map(),
     };
-    let newPlayer: Player = {
-      id: client.id, //  找机会改成使用传入的player用户名
-      socketId: client.id,
-    };
-    newRoom.playerMap.set(client.id, newPlayer);
+    this.updateRoom(newRoom, client.id, client.id);
     this.globalGameRoom.set(data.roomName, newRoom);
     console.log(client.rooms);
     console.log(this.globalGameRoom);
-    return data;
+    return {
+      success: true,
+      room: newRoom,
+      msg: '创建成功!'
+    };
   }
 
   @SubscribeMessage('joinRoom')
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
-  ): any {
+    @MessageBody() roomName: string,
+  ): JoinRoomRes {
     console.log('joinRoom');
     const roomsMap = this.server.of('/').adapter.rooms;
     console.log('of room', roomsMap);
-    console.log('set room', data.roomId, roomsMap.get(data.roomId));
+    console.log('set room', roomName, roomsMap.get(roomName));
 
-    if (roomsMap.get(data.roomId) === undefined) {
+    if (roomsMap.get(roomName) === undefined) {
       //  if incoming room_id not in exist rooms, return null
       console.log('no has');
-      return null;
-    } else if (roomsMap.get(data.roomId).size >= this.limitClientNum + 1) {
+      return JOIN_ROOM_EXIST;
+    } else if (roomsMap.get(roomName).size >= this.limitClientNum + 1) {
       // room 人数超过4, 拒绝加入(+1是计入初始的一个房间, 这里没找到namespace的api，先这样写)
-      console.log('size', roomsMap.get(data.roomId).size);
-      return { msg: '当前房间人数已满' };
-    } else if (this.globalGameRoom.get(data.roomId).started) {
-      return { msg: '当前房间正在游戏中，无法加入' };
+      console.log('size', roomsMap.get(roomName).size);
+      return ROOM_FULL;
+    } else if (this.globalGameRoom.get(roomName).started) {
+      return ROOM_PLAYING;
+    } else if (this.server.of('/').adapter.rooms.get(roomName).has(client.id)) {
+      return REPEAT_JOIN;
     }
-    client.join(data.roomId);
+    client.join(roomName);
+    this.updateRoom(this.globalGameRoom.get(roomName), client.id, client.id);
     this.server
-      .to(data.roomId as string)
+      .to(roomName as string)
       .except(client.id)
       .emit('broadcast', { msg: `${client.id}已进入房间` }); //  给当前房间除了自己的人广播消息
-    return { msg: `已加入房间：${data.roomId}` }; //  if exist, return room info
+    return {
+      msg: `已加入房间：${roomName}`,
+      success: true,
+      room: this.globalGameRoom.get(roomName)
+    }; //  if exist, return room info
   }
 
   @SubscribeMessage('leaveRoom')
@@ -97,13 +116,13 @@ export class EventGateway {
   handleStart(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: any,
-  ): any {
+  ): StartInfo {
     console.log('handleStart');
-    // this.globalGameRoom.get(data.roomId)
-    if(this.server.of('/').adapter.rooms.get(data.roomId).size < 2) {
-      return { msg: '人数不足，无法开始', enable: false }
+    // this.globalGameRoom.get(data.roomName)
+    if (this.server.of('/').adapter.rooms.get(data.roomName).size < 2) {
+      return PLAYER_TOO_LESS;
     }
-    return { enable: true };
+    return GAME_START;
   }
 
   /**

@@ -1,0 +1,10 @@
+"use strict";
+exports.__esModule = true;
+exports.CREATE_ROOM_EXIST = exports.JOIN_ROOM_EXIST = exports.GAME_START = exports.PLAYER_TOO_LESS = exports.REPEAT_JOIN = exports.ROOM_PLAYING = exports.ROOM_FULL = void 0;
+exports.ROOM_FULL = { msg: '当前房间人数已满', success: false };
+exports.ROOM_PLAYING = { msg: '当前房间正在游戏中，无法加入', success: false };
+exports.REPEAT_JOIN = { msg: '您已加入，请勿重复加入房间', success: false };
+exports.PLAYER_TOO_LESS = { msg: '人数不足，无法开始', enable: false };
+exports.GAME_START = { msg: '进入游戏', enable: true };
+exports.JOIN_ROOM_EXIST = { success: false, msg: '房间不存在！' };
+exports.CREATE_ROOM_EXIST = { msg: '创建失败，房间名已存在，请换一个房间名', success: false };
