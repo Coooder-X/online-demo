@@ -24,12 +24,33 @@ export class EventGateway {
     newRoom.playerMap.set(clientId, newPlayer);
   }
 
+  private updateRoomList = (): RoomInfo[] => {
+    let roomList = [];
+    for (let room of this.globalGameRoom) {
+      roomList.push(room[1]);
+    }
+    roomList = roomList.map((room: GameRoom): RoomInfo => {
+      return { ...room, playerNum: room.playerMap.size }; //  验证正确后去掉 playerMap 属性
+    });
+    return roomList;
+  }
+
   @SubscribeMessage('connect-server')
   handleConnect(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: any,
-  ): void {
+  ): RoomInfo[] {
     console.log('new client connected.');
+    return this.updateRoomList(); //  每个客户端接入时，自动获取一次房间列表
+  }
+
+  @SubscribeMessage('update-roomlist')
+  handleUpdateRoomList (
+    @ConnectedSocket() client: Socket,
+  ): void {
+    console.log('update.');
+    this.server.sockets.emit('get-new-room-list', this.updateRoomList()); //  通知所有客户端获取新房间列表
+    // this.server.of('/').emit('get-new-room-list', this.updateRoomList()); 
   }
 
   @SubscribeMessage('createRoom')

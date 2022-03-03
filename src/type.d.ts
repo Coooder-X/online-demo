@@ -29,3 +29,9 @@ interface CreateRoomRes {
     msg: string;
     success: boolean;
 }
+
+interface RoomInfo {
+    name: string;
+    started: boolean;
+    playerNum: number;
+}

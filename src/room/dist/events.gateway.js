@@ -1,4 +1,15 @@
 "use strict";
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -14,6 +25,7 @@ var websockets_1 = require("@nestjs/websockets");
 var constant_1 = require("src/constant");
 var EventGateway = /** @class */ (function () {
     function EventGateway() {
+        var _this = this;
         this.limitClientNum = 4;
         this.globalGameRoom = new Map();
         this.updateRoom = function (newRoom, clientId, playerName) {
@@ -23,9 +35,26 @@ var EventGateway = /** @class */ (function () {
             };
             newRoom.playerMap.set(clientId, newPlayer);
         };
+        this.updateRoomList = function () {
+            var roomList = [];
+            for (var _i = 0, _a = _this.globalGameRoom; _i < _a.length; _i++) {
+                var room = _a[_i];
+                roomList.push(room[1]);
+            }
+            roomList = roomList.map(function (room) {
+                return __assign(__assign({}, room), { playerNum: room.playerMap.size }); //  验证正确后去掉 playerMap 属性
+            });
+            return roomList;
+        };
     }
     EventGateway.prototype.handleConnect = function (client, data) {
         console.log('new client connected.');
+        return this.updateRoomList(); //  每个客户端接入时，自动获取一次房间列表
+    };
+    EventGateway.prototype.handleUpdateRoomList = function (client) {
+        console.log('update.');
+        this.server.sockets.emit('get-new-room-list', this.updateRoomList()); //  通知所有客户端获取新房间列表
+        // this.server.of('/').emit('get-new-room-list', this.updateRoomList()); 
     };
     EventGateway.prototype.handleCreateRoom = function (client, data) {
         console.log('createRoom');
@@ -116,6 +145,10 @@ var EventGateway = /** @class */ (function () {
         __param(0, websockets_1.ConnectedSocket()),
         __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleConnect");
+    __decorate([
+        websockets_1.SubscribeMessage('update-roomlist'),
+        __param(0, websockets_1.ConnectedSocket())
+    ], EventGateway.prototype, "handleUpdateRoomList");
     __decorate([
         websockets_1.SubscribeMessage('createRoom'),
         __param(0, websockets_1.ConnectedSocket()),
