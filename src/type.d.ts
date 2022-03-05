@@ -14,7 +14,7 @@ interface Player {
 }
 
 interface StartInfo {
-    msg?: string;
+    msg: string;
     enable: boolean;
 }
 
