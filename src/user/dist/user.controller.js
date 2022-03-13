@@ -64,18 +64,12 @@ var UserController = /** @class */ (function () {
     }
     UserController.prototype.login = function (userInfo) {
         return __awaiter(this, void 0, Promise, function () {
-            var _a, _b, _c;
-            return __generator(this, function (_d) {
-                switch (_d.label) {
+            return __generator(this, function (_a) {
+                switch (_a.label) {
                     case 0:
                         console.log(userInfo);
-                        _b = (_a = console).log;
-                        _c = ['resUser'];
-                        return [4 /*yield*/, this.UserService.findByAccount(userInfo)];
-                    case 1:
-                        _b.apply(_a, _c.concat([_d.sent()]));
-                        return [4 /*yield*/, this.UserService.findByAccount(userInfo)];
-                    case 2: return [2 /*return*/, _d.sent()];
+                        return [4 /*yield*/, userInfo];
+                    case 1: return [2 /*return*/, _a.sent()];
                 }
             });
         });

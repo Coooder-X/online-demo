@@ -5,7 +5,7 @@ import { UserService } from './user.service';
 
 @Controller()
 export class UserController {
-  constructor() {}
+  constructor(private readonly UserService: UserService) {}
 
   @Post('login')
   async login(@Body() userInfo: UserInfo): Promise<User> {
@@ -13,12 +13,12 @@ export class UserController {
     return await userInfo;
   }
 
-  // @Post('register')
-  // async register(@Body() userInfo: UserInfo): Promise<boolean> {
-  //   let user: User = await this.UserService.findByName(userInfo.username);
-  //   if (user) return false;
-  //   const newUser: User = { ...userInfo };
-  //   user = await this.UserService.register(newUser);
-  //   return user !== undefined;
-  // }
+  @Post('register')
+  async register(@Body() userInfo: UserInfo): Promise<boolean> {
+    let user: User = await this.UserService.findByName(userInfo.username);
+    if (user) return false;
+    const newUser: User = { ...userInfo };
+    user = await this.UserService.register(newUser);
+    return user !== undefined;
+  }
 }
