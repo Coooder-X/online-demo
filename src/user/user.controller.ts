@@ -10,7 +10,8 @@ export class UserController {
   @Post('login')
   async login(@Body() userInfo: UserInfo): Promise<User> {
     console.log(userInfo);
-    return await userInfo;
+    // return await userInfo;
+    return await this.UserService.findByAccount(userInfo);
   }
 
   @Post('register')

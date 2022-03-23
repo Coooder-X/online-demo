@@ -16,12 +16,20 @@ export class EventGateway {
 
   private globalGameRoom: Map<string, GameRoom> = new Map();
 
-  private updateRoom = (newRoom: GameRoom, clientId: string, playerName: string) => {
-    const newPlayer: Player = {
-      id: playerName, //  找机会改成使用传入的player用户名
-      socketId: clientId,
-    };
-    newRoom.playerMap.set(clientId, newPlayer);
+  private broadcast2Others = (roomName: string, clientId: string, msg: string) => {
+    this.server
+      .to(roomName as string)
+      .except(clientId)
+      .emit('broadcast', { msg: msg }); //  给当前房间除了自己的人广播消息
+  }
+
+  private updateRoom = (newRoom: GameRoom, player: Player) => {
+    // const newPlayer: Player = {
+    //   name: playerName,
+    //   id: playerName, //  找机会改成使用传入的player用户名
+    //   socketId: clientId,
+    // };
+    newRoom.playerMap.set(player.id, player);
   }
 
   private updateRoomList = (): RoomInfo[] => {
@@ -69,10 +77,12 @@ export class EventGateway {
     }
     client.join(data.roomName); //  创建时自动加入房间
 
-    const newPlayer: Player = { //  房主在创建时更新进入 globalGameRoom
-      id: client.id, //  找机会改成使用传入的player用户名
-      socketId: client.id,
-    };
+    const newPlayer: Player = data.owner;
+    // { //  房主在创建时更新进入 globalGameRoom
+    //   name: client.id,
+    //   id: client.id, //  找机会改成使用传入的player用户名
+    //   socketId: client.id,
+    // };
     let newRoom: GameRoom = {
       name: data.roomName,
       owner: newPlayer,
@@ -94,8 +104,9 @@ export class EventGateway {
   @SubscribeMessage('joinRoom')
   handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() roomName: string,
+    @MessageBody() joinRoomReq: JoinRoomReq
   ): JoinRoomRes {
+    const { roomName, player } = joinRoomReq;
     console.log('joinRoom');
     const roomsMap = this.server.of('/').adapter.rooms;
     console.log('of room', roomsMap);
@@ -111,15 +122,12 @@ export class EventGateway {
       return ROOM_FULL;
     } else if (this.globalGameRoom.get(roomName).started) {
       return ROOM_PLAYING;
-    } else if (this.server.of('/').adapter.rooms.get(roomName).has(client.id)) {
+    } else if (this.server.of('/').adapter.rooms.get(roomName).has(player.id)) {
       return REPEAT_JOIN;
     }
     client.join(roomName);
-    this.updateRoom(this.globalGameRoom.get(roomName), client.id, client.id);
-    this.server
-      .to(roomName as string)
-      .except(client.id)
-      .emit('broadcast', { msg: `${client.id}已进入房间` }); //  给当前房间除了自己的人广播消息
+    this.updateRoom(this.globalGameRoom.get(roomName), player);
+    this.broadcast2Others(roomName, client.id, `${player.name}已进入房间`); //  给当前房间除了自己的人广播消息
     return {
       msg: `已加入房间：${roomName}`,
       success: true,
@@ -127,13 +135,35 @@ export class EventGateway {
     }; //  if exist, return room info
   }
 
-  @SubscribeMessage('leaveRoom')
+  @SubscribeMessage('leaveRoom')  //  玩家手动离开房间（不通过调用 handleDisconnect 实现了）
   handleLeaveRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
+    @MessageBody() leaveRoomReq: LaveRoomReq,
   ): any {
     console.log('leaveRoom');
-    return data;
+    const rooms = this.globalGameRoom;
+    const { player, room } = leaveRoomReq;
+
+    const curRoom = rooms.get(room.name);
+    // console.log('curRoom1', this.server.of('/').adapter.rooms.get(room.name));
+    if (curRoom.owner.id === player.id) { //  是房主
+      console.log('是房主');
+      //  TODO: 随机安排一个玩家为房主 or 房间解散？
+      if (room.playerMap.size > 1) {
+
+      } else {
+        this.globalGameRoom.delete(curRoom.name);
+        this.server.of('/').adapter.rooms.delete(curRoom.name); //  从实际 socket 中删除
+      }
+    } else if (curRoom.playerMap.has(player.id)) { //  若是普通玩家离开，注意处理给其它玩家的通知（TODO）
+      console.log('是普通玩家');
+      curRoom.playerMap.delete(player.id);
+      client.leave(curRoom.name);
+      this.broadcast2Others(curRoom.name, client.id, `${player.name}已离开房间`); //  给当前房间除了自己的人广播消息
+    }
+    // console.log('curRoom2', this.server.of('/').adapter.rooms.get(room.name));
+    this.handleUpdateRoomList();
+    return true;
   }
 
   @SubscribeMessage('event')
@@ -159,11 +189,16 @@ export class EventGateway {
    * 断开链接
    */
   handleDisconnect(client: Socket, manually: Boolean | undefined) {
-    console.log('disconnect', client.id);
+    console.log('disconnect', client.id, client.data);
+    console.log('client', client.handshake.auth);
+    const loginPlayerInfo = client.handshake.auth;
+    const playerId = loginPlayerInfo.id;
+
     /*  
       重大问题！！！ 
       1、刷新页面导致断连和重连
         - 保存当前状态（both 前/后端），并且不适用 client 的 socket id 作为房间和人的唯一标识，应当使用玩家 id
+        - 先创建前端的 redux
         - 需要记录的状态：加入的房间、游戏的进度、登陆的状态
       2、handleDisconnect 函数执行时，client 已经销毁，无法通过 id 拿到房间信息来更新 globalGameRoom
         - 通过 client.id 直接在 globalGameRoom 里遍历房间和 playerMap 查找，然后删除
@@ -174,8 +209,17 @@ export class EventGateway {
       
       TODOS
       1、先完成前端页面刷新，断连时相关 globalGameRoom 清除的逻辑
-      2、实现以用户 id 作为房间和用户标识
+      2、实现以用户 id 作为房间和用户标识【已解决, 待检查】
       2、然后实现断连状态记录恢复的逻辑
+
+      现状：
+      1、玩家的 id 已经是数据库分配的 uid（发送 create 和 join 请求时传过来的），而不是 client.id，
+          但 room.playerMap 里还没改过来，仍然是 client.id
+      2、加入房间后刷新，就退出房间了（前后端都显示如此）
+      3、这里断连仍然是用 client.id 查找，肯定会出问题，但不知道该函数如何获取断连的用户的 player uid
+      【已解决】：方法：后端的 Socket 对象有data属性，但前端没有，无法利用，但前后端都有身份验证 auth 属性
+        在前端登陆后，进入 menu 页时创建 socket 连接，此时在前端给 auth 写入用户信息，后端就能在 client 参数中，
+        通过 client.handshake.auth 获取断开连接的 player 对象.
     */
     const rooms = this.globalGameRoom;
     console.log('rooms', rooms);
@@ -183,7 +227,7 @@ export class EventGateway {
     if (true) {  // 测试时为true，之后应该为 manually，此处是处理用户手动退出的
       for (const roomName of rooms.keys()) {
         const room = rooms.get(roomName);
-        if (room.owner.id === client.id) { //  是房主
+        if (room.owner.id === playerId) { //  是房主
           console.log('是房主');
           //  TODO: 随机安排一个玩家为房主
           if (room.playerMap.size > 1) {
@@ -191,37 +235,12 @@ export class EventGateway {
           } else {
             this.globalGameRoom.delete(roomName);
           }
-        } else if (room.playerMap.has(client.id)) { //  若是普通玩家离开，注意处理给其它玩家的通知（TODO）
+        } else if (room.playerMap.has(playerId)) { //  若是普通玩家离开，注意处理给其它玩家的通知（TODO）
           console.log('是普通玩家');
-          room.playerMap.delete(client.id);
+          room.playerMap.delete(playerId);
         }
       }
     }
-
-    // const sids = this.server.of('/').adapter.sids;
-    // console.log('sids', sids);
-    // console.log('id', client.id);
-    // const rooms = sids.get(client.id);
-    // // const lst = [];
-    // console.log('rooms', rooms);
-    // for(const roomName of rooms.keys()) {
-    //   // lst.push(roomName);
-    //   //  如果离开的是房主
-    //   if(this.globalGameRoom.has(roomName) && this.globalGameRoom.get(roomName).owner.socketId === client.id) {
-    //     //  房主随机移交给下一个人，若没人，解散房间（TODO）
-    //     //  解散房间：删除 globalGameRoom 记录
-    //     this.globalGameRoom.delete(roomName);
-    //     this.server.of('/').adapter.rooms.delete(roomName);
-    //   }
-    //   //  若是普通玩家离开，注意处理给其它玩家的通知（TODO）
-    //   client.leave(roomName);
-    //   this.globalGameRoom.get(roomName).playerMap.delete(client.id);
-    // }
-
-
-    // // this.globalGameRoom
-    // // this.allNum -= 1
-    // // this.ws.emit('leave', { name: this.users[client.id], allNum: this.allNum, connectCounts: this.connectCounts });
     this.handleUpdateRoomList();
   }
 }

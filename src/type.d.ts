@@ -3,13 +3,26 @@ interface GameRoom {
     owner: Player;
     started: boolean;
     message: Map<string, string>;
-    playerMap: Map<string, Player>;
+    playerMap: Map<string, Player>; //  已改为 player.id, player 的键值对
 }
 
 interface CreateRoomReq {
     roomName: string;
+    owner: Player | undefined;
+}
+
+interface JoinRoomReq {
+    roomName: string;
+    player: Player | undefined;
+}
+
+interface LaveRoomReq {
+    player: Player;
+    room: GameRoom;
 }
 interface Player {
+    // avatar?: any;   //  头像
+    name: string;
     id: string;
     socketId: string;
 }

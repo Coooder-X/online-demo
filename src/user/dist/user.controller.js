@@ -68,8 +68,10 @@ var UserController = /** @class */ (function () {
                 switch (_a.label) {
                     case 0:
                         console.log(userInfo);
-                        return [4 /*yield*/, userInfo];
-                    case 1: return [2 /*return*/, _a.sent()];
+                        return [4 /*yield*/, this.UserService.findByAccount(userInfo)];
+                    case 1: 
+                    // return await userInfo;
+                    return [2 /*return*/, _a.sent()];
                 }
             });
         });

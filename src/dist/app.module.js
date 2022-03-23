@@ -19,7 +19,8 @@ var AppModule = /** @class */ (function () {
     }
     AppModule = __decorate([
         common_1.Module({
-            imports: [typeorm_1.TypeOrmModule.forRoot({
+            imports: [
+                typeorm_1.TypeOrmModule.forRoot({
                     type: 'mysql',
                     host: 'localhost',
                     port: 3306,
@@ -33,7 +34,9 @@ var AppModule = /** @class */ (function () {
                     dropSchema: false,
                     synchronize: true,
                     logging: true
-                }), user_module_1.UsersModule],
+                }),
+                user_module_1.UsersModule,
+            ],
             controllers: [app_controller_1.AppController],
             providers: [app_service_1.AppService, events_gateway_1.EventGateway]
         })
