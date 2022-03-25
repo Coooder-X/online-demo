@@ -6,7 +6,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Socket, Server } from 'socket.io';
-import { PLAYER_TOO_LESS, GAME_START, REPEAT_JOIN, ROOM_PLAYING, ROOM_FULL, JOIN_ROOM_EXIST, CREATE_ROOM_EXIST } from 'src/constant';
+import { PLAYER_TOO_LESS, GAME_START, REPEAT_JOIN, ROOM_PLAYING, ROOM_FULL, JOIN_ROOM_EXIST, CREATE_ROOM_EXIST, GAME_READY, PLAYER_NO_READY } from 'src/constant';
 
 @WebSocketGateway({ cors: true })
 export class EventGateway {
@@ -87,7 +87,8 @@ export class EventGateway {
       name: data.roomName,
       owner: newPlayer,
       started: false,
-      message: new Map(),
+      readyNum: 1,
+      message: new Array(),
       playerMap: new Map(),
     };
     newRoom.playerMap.set(newPlayer.id, newPlayer);
@@ -166,23 +167,66 @@ export class EventGateway {
     return true;
   }
 
-  @SubscribeMessage('event')
-  handleEvent(@MessageBody() data: any): any {
+  /*  由于 socket.io 只能传递 ‘serializable datastructures’, 传递 Map 对象会导致前端收到空对象
+      因此在给前端传递带有 Map 对象的数据结构，如 GameRoom 时，要做一个序列化转换。（转成 Array）
+  */
+  @SubscribeMessage('get-room-obj')
+  getRoomObj(@MessageBody() roomName: string): GameRoomSerializ {
     console.log('call event');
-    return data;
+    const serializRoom: GameRoomSerializ = {
+      ...this.globalGameRoom.get(roomName),
+      playerLst: Array.from(this.globalGameRoom.get(roomName).playerMap.values()),
+    }
+    console.log('get-room-obj:', serializRoom);
+    return serializRoom;
+  }
+
+  //  接受（房主）的第一次请求，广播出牌轮次
+  @SubscribeMessage('qurey-turns-info')
+  firstBroadcastTrunsInfo(@MessageBody() roomName: string) {
+    const room = this.globalGameRoom.get(roomName);
+    const index = Math.floor(Math.random() * room.playerMap.size);
+    this.server
+      .to(roomName as string)
+      .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+  }
+
+  //  每轮出牌结束，广播出牌轮次
+  @SubscribeMessage('notifyNext')
+  broadcastTrunsInfo(@MessageBody() data: {idx: number, roomSize: number, roomName: string}) {
+    const index = (data.idx + 1) % data.roomSize;
+    this.server
+      .to(data.roomName as string)
+      .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
   }
 
   @SubscribeMessage('handleStart')
   handleStart(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: any,
+    @MessageBody() data: StartReq,
   ): StartInfo {
     console.log('handleStart');
-    // this.globalGameRoom.get(data.roomName)
-    if (this.server.of('/').adapter.rooms.get(data.roomName).size < 2) {
-      return PLAYER_TOO_LESS;
+    const { roomName, isOwner, ready } = data;
+    const room = this.globalGameRoom.get(roomName);
+    console.log('readyNum', room.readyNum);
+    if (isOwner) {  //  房主点击开始游戏
+      if (room.playerMap.size < 2) {
+        return PLAYER_TOO_LESS;
+      } else if (room.readyNum === room.playerMap.size) {
+        //  开始
+        this.server.sockets.in(roomName).emit('game-start', { msg: 'game-start', roomName });
+        return GAME_START;
+      } else {
+        return PLAYER_NO_READY;
+      }
+    } else {  //  玩家点击准备
+      if (ready) {
+        room.readyNum++;
+      } else {
+        room.readyNum--;
+      }
+      return GAME_READY;
     }
-    return GAME_START;
   }
 
   /**

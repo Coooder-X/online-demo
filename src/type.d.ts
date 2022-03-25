@@ -2,8 +2,23 @@ interface GameRoom {
     name: string;
     owner: Player;
     started: boolean;
-    message: Map<string, string>;
+    readyNum: number;
+    message: Array;
     playerMap: Map<string, Player>; //  已改为 player.id, player 的键值对
+}
+
+interface GameRoomSerializ {
+    name: string;
+    owner: Player;
+    started: boolean;
+    readyNum: number;
+    message: Array<Message>;
+    playerLst: Player[];
+}
+
+interface Message {
+    playerName: string;
+    msg: string;
 }
 
 interface CreateRoomReq {
@@ -30,6 +45,12 @@ interface Player {
 interface StartInfo {
     msg: string;
     enable: boolean;
+}
+
+interface StartReq {
+    roomName: string;
+    isOwner: boolean;
+    ready: boolean;
 }
 
 interface JoinRoomRes {

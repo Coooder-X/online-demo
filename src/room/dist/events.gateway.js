@@ -81,7 +81,8 @@ var EventGateway = /** @class */ (function () {
             name: data.roomName,
             owner: newPlayer,
             started: false,
-            message: new Map(),
+            readyNum: 1,
+            message: new Array(),
             playerMap: new Map()
         };
         newRoom.playerMap.set(newPlayer.id, newPlayer);
@@ -151,17 +152,57 @@ var EventGateway = /** @class */ (function () {
         this.handleUpdateRoomList();
         return true;
     };
-    EventGateway.prototype.handleEvent = function (data) {
+    /*  由于 socket.io 只能传递 ‘serializable datastructures’, 传递 Map 对象会导致前端收到空对象
+        因此在给前端传递带有 Map 对象的数据结构，如 GameRoom 时，要做一个序列化转换。（转成 Array）
+    */
+    EventGateway.prototype.getRoomObj = function (roomName) {
         console.log('call event');
-        return data;
+        var serializRoom = __assign(__assign({}, this.globalGameRoom.get(roomName)), { playerLst: Array.from(this.globalGameRoom.get(roomName).playerMap.values()) });
+        console.log('get-room-obj:', serializRoom);
+        return serializRoom;
+    };
+    //  接受（房主）的第一次请求，广播出牌轮次
+    EventGateway.prototype.firstBroadcastTrunsInfo = function (roomName) {
+        var room = this.globalGameRoom.get(roomName);
+        var index = Math.floor(Math.random() * room.playerMap.size);
+        this.server
+            .to(roomName)
+            .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+    };
+    //  每轮出牌结束，广播出牌轮次
+    EventGateway.prototype.broadcastTrunsInfo = function (data) {
+        var index = (data.idx + 1) % data.roomSize;
+        this.server
+            .to(data.roomName)
+            .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
     };
     EventGateway.prototype.handleStart = function (client, data) {
         console.log('handleStart');
-        // this.globalGameRoom.get(data.roomName)
-        if (this.server.of('/').adapter.rooms.get(data.roomName).size < 2) {
-            return constant_1.PLAYER_TOO_LESS;
+        var roomName = data.roomName, isOwner = data.isOwner, ready = data.ready;
+        var room = this.globalGameRoom.get(roomName);
+        console.log('readyNum', room.readyNum);
+        if (isOwner) { //  房主点击开始游戏
+            if (room.playerMap.size < 2) {
+                return constant_1.PLAYER_TOO_LESS;
+            }
+            else if (room.readyNum === room.playerMap.size) {
+                //  开始
+                this.server.sockets["in"](roomName).emit('game-start', { msg: 'game-start', roomName: roomName });
+                return constant_1.GAME_START;
+            }
+            else {
+                return constant_1.PLAYER_NO_READY;
+            }
         }
-        return constant_1.GAME_START;
+        else { //  玩家点击准备
+            if (ready) {
+                room.readyNum++;
+            }
+            else {
+                room.readyNum--;
+            }
+            return constant_1.GAME_READY;
+        }
     };
     /**
      * 断开链接
@@ -249,9 +290,17 @@ var EventGateway = /** @class */ (function () {
         __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleLeaveRoom");
     __decorate([
-        websockets_1.SubscribeMessage('event'),
+        websockets_1.SubscribeMessage('get-room-obj'),
         __param(0, websockets_1.MessageBody())
-    ], EventGateway.prototype, "handleEvent");
+    ], EventGateway.prototype, "getRoomObj");
+    __decorate([
+        websockets_1.SubscribeMessage('qurey-turns-info'),
+        __param(0, websockets_1.MessageBody())
+    ], EventGateway.prototype, "firstBroadcastTrunsInfo");
+    __decorate([
+        websockets_1.SubscribeMessage('notifyNext'),
+        __param(0, websockets_1.MessageBody())
+    ], EventGateway.prototype, "broadcastTrunsInfo");
     __decorate([
         websockets_1.SubscribeMessage('handleStart'),
         __param(0, websockets_1.ConnectedSocket()),
