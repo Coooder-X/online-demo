@@ -16,6 +16,8 @@ export class EventGateway {
 
   private globalGameRoom: Map<string, GameRoom> = new Map();
 
+  private room_cardPile_map: Map<string, CardPile> = new Map();
+
   private broadcast2Others = (roomName: string, clientId: string, msg: string) => {
     this.server
       .to(roomName as string)
@@ -46,6 +48,27 @@ export class EventGateway {
       }; //  验证正确后去掉 playerMap 属性
     });
     return roomList;
+  }
+
+  private initCardPile = (): CardPile => {
+    let blackCards = [], whiteCards = [];
+    for (let i = 0; i < 12; ++i) {
+      const t1: Card = {
+        value: i.toString(), color: true, isShown: false, playerId: null
+      }, t2 = {
+        value: i.toString(), color: false, isShown: false, playerId: null
+      };
+      blackCards.push(t1), whiteCards.push(t2);
+    }
+    const t1: Card = {
+      value: '-', color: true, isShown: false, playerId: null
+    }, t2 = {
+      value: '-', color: false, isShown: false, playerId: null
+    };
+    blackCards.push(t1), whiteCards.push(t2);
+    blackCards.sort(() => Math.random() - 0.5);
+    whiteCards.sort(() => Math.random() - 0.5);
+    return { blackCards, whiteCards };
   }
 
   @SubscribeMessage('connect-server')
@@ -182,22 +205,37 @@ export class EventGateway {
   }
 
   //  接受（房主）的第一次请求，广播出牌轮次
-  @SubscribeMessage('qurey-turns-info')
-  firstBroadcastTrunsInfo(@MessageBody() roomName: string) {
-    const room = this.globalGameRoom.get(roomName);
-    const index = Math.floor(Math.random() * room.playerMap.size);
-    this.server
-      .to(roomName as string)
-      .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
-  }
+  // @SubscribeMessage('qurey-turns-info')
+  // firstBroadcastTrunsInfo(@MessageBody() roomName: string) {
+  //   const room = this.globalGameRoom.get(roomName);
+  //   const index = Math.floor(Math.random() * room.playerMap.size);
+  //   this.server
+  //     .to(roomName as string)
+  //     .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+  // }
 
   //  每轮出牌结束，广播出牌轮次
   @SubscribeMessage('notifyNext')
-  broadcastTrunsInfo(@MessageBody() data: {idx: number, roomSize: number, roomName: string}) {
+  broadcastTrunsInfo(@MessageBody() data: { idx: number, roomSize: number, roomName: string }) {
     const index = (data.idx + 1) % data.roomSize;
     this.server
       .to(data.roomName as string)
       .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+  }
+
+  @SubscribeMessage('finishGetCard')
+  handleFinishGetCard(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() roomName: string,
+  ): void {
+    const room = this.globalGameRoom.get(roomName);
+    room.readyNum++;
+    if (room.readyNum === 2 * room.playerMap.size) {  //  当所有人都完成了初始摸牌
+      const index = Math.floor(Math.random() * room.playerMap.size);
+      this.server
+        .to(roomName as string)
+        .emit('get-turns-info', { curIndex: index }); //  广播初始出牌轮次
+    }
   }
 
   @SubscribeMessage('handleStart')
@@ -215,6 +253,7 @@ export class EventGateway {
       } else if (room.readyNum === room.playerMap.size) {
         //  开始
         this.server.sockets.in(roomName).emit('game-start', { msg: 'game-start', roomName });
+        this.room_cardPile_map.set(roomName, this.initCardPile());
         return GAME_START;
       } else {
         return PLAYER_NO_READY;
@@ -226,6 +265,22 @@ export class EventGateway {
         room.readyNum--;
       }
       return GAME_READY;
+    }
+  }
+
+  @SubscribeMessage('handleGetNum')
+  handleGetNum(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() getCardReq: GetCardReq,
+  ): string {
+    const { roomName, isBlack, playerId } = getCardReq;
+    const cardPile: CardPile = this.room_cardPile_map.get(roomName);
+    const colorPile = isBlack? cardPile.blackCards : cardPile.whiteCards;
+    for (let i = 0; i < colorPile.length; ++i) {  //  返回第一张没用过的卡牌, 分配给玩家 Id
+      if (!colorPile[i].playerId) {
+        colorPile[i].playerId = playerId;
+        return colorPile[i].value;
+      }
     }
   }
 

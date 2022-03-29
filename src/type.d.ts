@@ -16,6 +16,18 @@ interface GameRoomSerializ {
     playerLst: Player[];
 }
 
+interface Card {
+    value: string;
+    color: boolean; //  isBlack
+    isShown: boolean;   // 是否翻牌可见
+    playerId: string | null;   //   null 标识未被摸到，在牌堆里
+}
+
+interface CardPile {
+    blackCards: Card[];
+    whiteCards: Card[];
+}
+
 interface Message {
     playerName: string;
     msg: string;
@@ -35,6 +47,13 @@ interface LaveRoomReq {
     player: Player;
     room: GameRoom;
 }
+
+interface GetCardReq {
+    roomName: string | undefined;
+    playerId: string | undefined;
+    isBlack: boolean;
+}
+
 interface Player {
     // avatar?: any;   //  头像
     name: string;

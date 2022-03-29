@@ -28,6 +28,7 @@ var EventGateway = /** @class */ (function () {
         var _this = this;
         this.limitClientNum = 4;
         this.globalGameRoom = new Map();
+        this.room_cardPile_map = new Map();
         this.broadcast2Others = function (roomName, clientId, msg) {
             _this.server
                 .to(roomName)
@@ -52,6 +53,26 @@ var EventGateway = /** @class */ (function () {
                 return __assign(__assign({}, room), { playerNum: room.playerMap.size, playerLst: Array.from(room.playerMap.values()), owner: room.owner }); //  验证正确后去掉 playerMap 属性
             });
             return roomList;
+        };
+        this.initCardPile = function () {
+            var blackCards = [], whiteCards = [];
+            for (var i = 0; i < 12; ++i) {
+                var t1_1 = {
+                    value: i.toString(), color: true, isShown: false, playerId: null
+                }, t2_1 = {
+                    value: i.toString(), color: false, isShown: false, playerId: null
+                };
+                blackCards.push(t1_1), whiteCards.push(t2_1);
+            }
+            var t1 = {
+                value: '-', color: true, isShown: false, playerId: null
+            }, t2 = {
+                value: '-', color: false, isShown: false, playerId: null
+            };
+            blackCards.push(t1), whiteCards.push(t2);
+            blackCards.sort(function () { return Math.random() - 0.5; });
+            whiteCards.sort(function () { return Math.random() - 0.5; });
+            return { blackCards: blackCards, whiteCards: whiteCards };
         };
     }
     EventGateway.prototype.handleConnect = function (client, data) {
@@ -162,19 +183,30 @@ var EventGateway = /** @class */ (function () {
         return serializRoom;
     };
     //  接受（房主）的第一次请求，广播出牌轮次
-    EventGateway.prototype.firstBroadcastTrunsInfo = function (roomName) {
-        var room = this.globalGameRoom.get(roomName);
-        var index = Math.floor(Math.random() * room.playerMap.size);
-        this.server
-            .to(roomName)
-            .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
-    };
+    // @SubscribeMessage('qurey-turns-info')
+    // firstBroadcastTrunsInfo(@MessageBody() roomName: string) {
+    //   const room = this.globalGameRoom.get(roomName);
+    //   const index = Math.floor(Math.random() * room.playerMap.size);
+    //   this.server
+    //     .to(roomName as string)
+    //     .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+    // }
     //  每轮出牌结束，广播出牌轮次
     EventGateway.prototype.broadcastTrunsInfo = function (data) {
         var index = (data.idx + 1) % data.roomSize;
         this.server
             .to(data.roomName)
             .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+    };
+    EventGateway.prototype.handleFinishGetCard = function (client, roomName) {
+        var room = this.globalGameRoom.get(roomName);
+        room.readyNum++;
+        if (room.readyNum === 2 * room.playerMap.size) { //  当所有人都完成了初始摸牌
+            var index = Math.floor(Math.random() * room.playerMap.size);
+            this.server
+                .to(roomName)
+                .emit('get-turns-info', { curIndex: index }); //  广播初始出牌轮次
+        }
     };
     EventGateway.prototype.handleStart = function (client, data) {
         console.log('handleStart');
@@ -188,6 +220,7 @@ var EventGateway = /** @class */ (function () {
             else if (room.readyNum === room.playerMap.size) {
                 //  开始
                 this.server.sockets["in"](roomName).emit('game-start', { msg: 'game-start', roomName: roomName });
+                this.room_cardPile_map.set(roomName, this.initCardPile());
                 return constant_1.GAME_START;
             }
             else {
@@ -202,6 +235,17 @@ var EventGateway = /** @class */ (function () {
                 room.readyNum--;
             }
             return constant_1.GAME_READY;
+        }
+    };
+    EventGateway.prototype.handleGetNum = function (client, getCardReq) {
+        var roomName = getCardReq.roomName, isBlack = getCardReq.isBlack, playerId = getCardReq.playerId;
+        var cardPile = this.room_cardPile_map.get(roomName);
+        var colorPile = isBlack ? cardPile.blackCards : cardPile.whiteCards;
+        for (var i = 0; i < colorPile.length; ++i) { //  返回第一张没用过的卡牌, 分配给玩家 Id
+            if (!colorPile[i].playerId) {
+                colorPile[i].playerId = playerId;
+                return colorPile[i].value;
+            }
         }
     };
     /**
@@ -294,18 +338,24 @@ var EventGateway = /** @class */ (function () {
         __param(0, websockets_1.MessageBody())
     ], EventGateway.prototype, "getRoomObj");
     __decorate([
-        websockets_1.SubscribeMessage('qurey-turns-info'),
-        __param(0, websockets_1.MessageBody())
-    ], EventGateway.prototype, "firstBroadcastTrunsInfo");
-    __decorate([
         websockets_1.SubscribeMessage('notifyNext'),
         __param(0, websockets_1.MessageBody())
     ], EventGateway.prototype, "broadcastTrunsInfo");
+    __decorate([
+        websockets_1.SubscribeMessage('finishGetCard'),
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
+    ], EventGateway.prototype, "handleFinishGetCard");
     __decorate([
         websockets_1.SubscribeMessage('handleStart'),
         __param(0, websockets_1.ConnectedSocket()),
         __param(1, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleStart");
+    __decorate([
+        websockets_1.SubscribeMessage('handleGetNum'),
+        __param(0, websockets_1.ConnectedSocket()),
+        __param(1, websockets_1.MessageBody())
+    ], EventGateway.prototype, "handleGetNum");
     EventGateway = __decorate([
         websockets_1.WebSocketGateway({ cors: true })
     ], EventGateway);
