@@ -218,24 +218,47 @@ export class EventGateway {
   @SubscribeMessage('notifyNext')
   broadcastTrunsInfo(@MessageBody() data: { idx: number, roomSize: number, roomName: string }) {
     const index = (data.idx + 1) % data.roomSize;
+    let restCardInfo: RestCardInfo = {
+      blackRest: this.room_cardPile_map.get(data.roomName).blackCards.filter((card) => {
+        return card.playerId == null
+      }).length,
+      whiteRest: this.room_cardPile_map.get(data.roomName).whiteCards.filter((card) => {
+        return card.playerId == null
+      }).length
+    };
     this.server
       .to(data.roomName as string)
-      .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+      .emit('get-turns-info', { curIndex: index, restCardInfo }); //  给当前房间除了自己的人广播消息
   }
 
   @SubscribeMessage('finishGetCard')
-  handleFinishGetCard(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() roomName: string,
-  ): void {
+  handleFinishGetCard(@MessageBody() roomName: string): void {
     const room = this.globalGameRoom.get(roomName);
     room.readyNum++;
     if (room.readyNum === 2 * room.playerMap.size) {  //  当所有人都完成了初始摸牌
       const index = Math.floor(Math.random() * room.playerMap.size);
+      let restCardInfo: RestCardInfo = {
+        blackRest: this.room_cardPile_map.get(roomName).blackCards.filter((card) => {
+          return card.playerId == null
+        }).length,
+        whiteRest: this.room_cardPile_map.get(roomName).whiteCards.filter((card) => {
+          return card.playerId == null
+        }).length
+      };
       this.server
         .to(roomName as string)
-        .emit('get-turns-info', { curIndex: index }); //  广播初始出牌轮次
+        .emit('get-turns-info', { curIndex: index, restCardInfo }); //  广播初始出牌轮次
     }
+  }
+
+  @SubscribeMessage('getRestCardInfo')
+  handleGetRestCardInfo(@MessageBody() roomName: string): RestCardInfo {
+    const cardPile = this.room_cardPile_map.get(roomName);
+    let restCardInfo: RestCardInfo = {
+      blackRest: cardPile.blackCards.filter(card => card.playerId == null).length,
+      whiteRest: cardPile.whiteCards.filter(card => card.playerId == null).length
+    };
+    return restCardInfo;
   }
 
   @SubscribeMessage('handleStart')
@@ -270,16 +293,21 @@ export class EventGateway {
 
   @SubscribeMessage('handleGetNum')
   handleGetNum(
-    @ConnectedSocket() client: Socket,
     @MessageBody() getCardReq: GetCardReq,
-  ): string {
+  ): GetCardRes {
     const { roomName, isBlack, playerId } = getCardReq;
     const cardPile: CardPile = this.room_cardPile_map.get(roomName);
-    const colorPile = isBlack? cardPile.blackCards : cardPile.whiteCards;
+    const colorPile = isBlack ? cardPile.blackCards : cardPile.whiteCards;
     for (let i = 0; i < colorPile.length; ++i) {  //  返回第一张没用过的卡牌, 分配给玩家 Id
       if (!colorPile[i].playerId) {
         colorPile[i].playerId = playerId;
-        return colorPile[i].value;
+        return {
+          num: colorPile[i].value,
+          restCardNum: {
+            blackRest: cardPile.blackCards.filter(card => card.playerId == null).length,
+            whiteRest: cardPile.whiteCards.filter(card => card.playerId == null).length,
+          }
+        };
       }
     }
   }

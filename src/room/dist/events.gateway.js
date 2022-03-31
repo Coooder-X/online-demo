@@ -194,19 +194,43 @@ var EventGateway = /** @class */ (function () {
     //  每轮出牌结束，广播出牌轮次
     EventGateway.prototype.broadcastTrunsInfo = function (data) {
         var index = (data.idx + 1) % data.roomSize;
+        var restCardInfo = {
+            blackRest: this.room_cardPile_map.get(data.roomName).blackCards.filter(function (card) {
+                return card.playerId == null;
+            }).length,
+            whiteRest: this.room_cardPile_map.get(data.roomName).whiteCards.filter(function (card) {
+                return card.playerId == null;
+            }).length
+        };
         this.server
             .to(data.roomName)
-            .emit('get-turns-info', { curIndex: index }); //  给当前房间除了自己的人广播消息
+            .emit('get-turns-info', { curIndex: index, restCardInfo: restCardInfo }); //  给当前房间除了自己的人广播消息
     };
-    EventGateway.prototype.handleFinishGetCard = function (client, roomName) {
+    EventGateway.prototype.handleFinishGetCard = function (roomName) {
         var room = this.globalGameRoom.get(roomName);
         room.readyNum++;
         if (room.readyNum === 2 * room.playerMap.size) { //  当所有人都完成了初始摸牌
             var index = Math.floor(Math.random() * room.playerMap.size);
+            var restCardInfo = {
+                blackRest: this.room_cardPile_map.get(roomName).blackCards.filter(function (card) {
+                    return card.playerId == null;
+                }).length,
+                whiteRest: this.room_cardPile_map.get(roomName).whiteCards.filter(function (card) {
+                    return card.playerId == null;
+                }).length
+            };
             this.server
                 .to(roomName)
-                .emit('get-turns-info', { curIndex: index }); //  广播初始出牌轮次
+                .emit('get-turns-info', { curIndex: index, restCardInfo: restCardInfo }); //  广播初始出牌轮次
         }
+    };
+    EventGateway.prototype.handleGetRestCardInfo = function (roomName) {
+        var cardPile = this.room_cardPile_map.get(roomName);
+        var restCardInfo = {
+            blackRest: cardPile.blackCards.filter(function (card) { return card.playerId == null; }).length,
+            whiteRest: cardPile.whiteCards.filter(function (card) { return card.playerId == null; }).length
+        };
+        return restCardInfo;
     };
     EventGateway.prototype.handleStart = function (client, data) {
         console.log('handleStart');
@@ -237,14 +261,20 @@ var EventGateway = /** @class */ (function () {
             return constant_1.GAME_READY;
         }
     };
-    EventGateway.prototype.handleGetNum = function (client, getCardReq) {
+    EventGateway.prototype.handleGetNum = function (getCardReq) {
         var roomName = getCardReq.roomName, isBlack = getCardReq.isBlack, playerId = getCardReq.playerId;
         var cardPile = this.room_cardPile_map.get(roomName);
         var colorPile = isBlack ? cardPile.blackCards : cardPile.whiteCards;
         for (var i = 0; i < colorPile.length; ++i) { //  返回第一张没用过的卡牌, 分配给玩家 Id
             if (!colorPile[i].playerId) {
                 colorPile[i].playerId = playerId;
-                return colorPile[i].value;
+                return {
+                    num: colorPile[i].value,
+                    restCardNum: {
+                        blackRest: cardPile.blackCards.filter(function (card) { return card.playerId == null; }).length,
+                        whiteRest: cardPile.whiteCards.filter(function (card) { return card.playerId == null; }).length
+                    }
+                };
             }
         }
     };
@@ -343,9 +373,12 @@ var EventGateway = /** @class */ (function () {
     ], EventGateway.prototype, "broadcastTrunsInfo");
     __decorate([
         websockets_1.SubscribeMessage('finishGetCard'),
-        __param(0, websockets_1.ConnectedSocket()),
-        __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleFinishGetCard");
+    __decorate([
+        websockets_1.SubscribeMessage('getRestCardInfo'),
+        __param(0, websockets_1.MessageBody())
+    ], EventGateway.prototype, "handleGetRestCardInfo");
     __decorate([
         websockets_1.SubscribeMessage('handleStart'),
         __param(0, websockets_1.ConnectedSocket()),
@@ -353,8 +386,7 @@ var EventGateway = /** @class */ (function () {
     ], EventGateway.prototype, "handleStart");
     __decorate([
         websockets_1.SubscribeMessage('handleGetNum'),
-        __param(0, websockets_1.ConnectedSocket()),
-        __param(1, websockets_1.MessageBody())
+        __param(0, websockets_1.MessageBody())
     ], EventGateway.prototype, "handleGetNum");
     EventGateway = __decorate([
         websockets_1.WebSocketGateway({ cors: true })

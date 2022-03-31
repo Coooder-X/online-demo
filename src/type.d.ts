@@ -84,10 +84,20 @@ interface CreateRoomRes {
     success: boolean;
 }
 
+interface GetCardRes {
+    num: string;
+    restCardNum: RestCardInfo;
+}
+
 interface RoomInfo {
     name: string;
     started: boolean;
     playerNum: number;
     owner: Player;
     playerLst: Player[];
+}
+
+interface RestCardInfo {
+    blackRest: number;
+    whiteRest: number;
 }
